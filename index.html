@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Mumbai AI Emergency Grid</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine/dist/leaflet-routing-machine.css" />
+    <style>
+        :root { --panel: #0f172a; --accent: #00f2ff; }
+        body { margin: 0; font-family: 'Segoe UI', sans-serif; display: flex; height: 100vh; background: #020617; }
+        
+        .dashboard {
+            position: absolute; top: 20px; left: 20px; width: 380px;
+            background: rgba(15, 23, 42, 0.95); color: white; border-radius: 15px;
+            z-index: 1000; padding: 20px; border: 1px solid rgba(255,255,255,0.1);
+            backdrop-filter: blur(10px); box-shadow: 0 20px 50px rgba(0,0,0,0.6);
+        }
+
+        #map { flex-grow: 1; z-index: 1; }
+
+        .location-select {
+            width: 100%; padding: 12px; background: #1e293b; color: white;
+            border: 1px solid #334155; border-radius: 8px; margin: 10px 0; font-size: 14px;
+        }
+
+        .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 15px 0; }
+        .stat-card { background: rgba(255,255,255,0.05); padding: 12px; border-radius: 10px; text-align: center; border: 1px solid #1e293b; }
+        .stat-val { font-size: 20px; font-weight: bold; color: var(--accent); display: block; }
+        .stat-lab { font-size: 10px; color: #94a3b8; text-transform: uppercase; }
+
+        .btn-dispatch {
+            width: 100%; padding: 16px; background: linear-gradient(135deg, #ef4444, #b91c1c);
+            color: white; border: none; border-radius: 10px; font-weight: 800;
+            cursor: pointer; text-transform: uppercase; transition: 0.3s;
+        }
+        .btn-dispatch:hover { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(239, 68, 68, 0.4); }
+
+        #log-window {
+            height: 100px; background: rgba(0,0,0,0.3); border-radius: 8px;
+            padding: 10px; font-family: monospace; font-size: 11px; color: #4ade80;
+            overflow-y: auto; margin-top: 15px; border: 1px solid #1e293b;
+        }
+    </style>
+</head>
+<body>
+
+<div class="dashboard">
+    <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 5px;">
+        <div style="width: 10px; height: 10px; background: #4ade80; border-radius: 50%; animation: pulse 1.5s infinite;"></div>
+        <h2 style="margin:0; font-size: 18px; letter-spacing: 1px;">MUMBAI AI COMMAND</h2>
+    </div>
+    <p style="font-size: 11px; color: #64748b;">Emergency Response Protocol v8.0</p>
+
+    <label style="font-size: 11px; color: #94a3b8; font-weight: bold;">DETECTED ACCIDENT ZONE:</label>
+    <select id="accident-site" class="location-select"></select>
+
+    <div class="stat-grid">
+        <div class="stat-card">
+            <span class="stat-lab">Nearest Hospital</span>
+            <span id="near-hosp" class="stat-val" style="font-size: 14px; margin-top: 5px;">--</span>
+        </div>
+        <div class="stat-card">
+            <span class="stat-lab">Est. Arrival</span>
+            <span id="eta" class="stat-val">-- mins</span>
+        </div>
+    </div>
+
+    <button class="btn-dispatch" onclick="findAndDispatch()">Dispatch Nearest Unit</button>
+    <div id="log-window">> Initializing satellite link...</div>
+</div>
+
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet-routing-machine/dist/leaflet-routing-machine.js"></script>
+
+<script>
+    // 1. Mumbai Map Setup
+    const map = L.map('map', { zoomControl: false }).setView([19.0760, 72.8777], 12);
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png').addTo(map);
+
+    // 2. Data: 4 Main Hospitals
+    const hospitals = [
+        { name: "Lilavati Hospital, Bandra", coords: [19.0514, 72.8295] },
+        { name: "Nanavati Max, Vile Parle", coords: [19.1015, 72.8425] },
+        { name: "SevenHills, Andheri", coords: [19.1170, 72.8760] },
+        { name: "JJ Hospital, Byculla", coords: [18.9630, 72.8330] }
+    ];
+
+    // 3. Data: Accident-Prone Areas
+    const locations = [
+        { name: "Gateway of India", coords: [18.9220, 72.8347] },
+        { name: "Dadar TT Circle", coords: [19.0178, 72.8478] },
+        { name: "BKC Diamond Market", coords: [19.0633, 72.8633] },
+        { name: "Juhu Beach", coords: [19.1075, 72.8263] },
+        { name: "Kurla Station", coords: [19.0720, 72.8800] },
+        { name: "Worli Sea Face", coords: [19.0140, 72.8150] },
+        { name: "Powai Lake", coords: [19.1250, 72.9100] },
+        { name: "Borivali West", coords: [19.2300, 72.8500] }
+    ];
+
+    // Markers on Map
+    hospitals.forEach(h => {
+        L.circleMarker(h.coords, { radius: 8, color: '#00f2ff', fillOpacity: 1 }).addTo(map)
+         .bindTooltip("HOSPITAL: " + h.name, {permanent: false});
+    });
+
+    const select = document.getElementById('accident-site');
+    locations.forEach((loc, index) => {
+        let opt = document.createElement('option');
+        opt.value = index; opt.text = loc.name;
+        select.add(opt);
+    });
+
+    let activeRoute = null;
+    let ambMarker = null;
+
+    function getDistance(c1, c2) {
+        return map.distance(c1, c2); 
+    }
+
+    function log(msg) {
+        const win = document.getElementById('log-window');
+        win.innerHTML += `<div>> ${msg}</div>`;
+        win.scrollTop = win.scrollHeight;
+    }
+
+    async function findAndDispatch() {
+        if(activeRoute) map.removeControl(activeRoute);
+        if(ambMarker) map.removeLayer(ambMarker);
+
+        const site = locations[select.value];
+        log(`Accident Detected: ${site.name}`);
+
+        // 4. AI Logic: Find Nearest Hospital
+        let nearest = hospitals[0];
+        let minDist = getDistance(site.coords, hospitals[0].coords);
+
+        hospitals.forEach(h => {
+            let d = getDistance(site.coords, h.coords);
+            if(d < minDist) {
+                minDist = d;
+                nearest = h;
+            }
+        });
+
+        document.getElementById('near-hosp').innerText = nearest.name.split(',')[0];
+        log(`Analyzing nearest trauma center... Found: ${nearest.name}`);
+
+        // 5. Real Routing
+        activeRoute = L.Routing.control({
+            waypoints: [L.latLng(site.coords), L.latLng(nearest.coords)],
+            lineOptions: { styles: [{ color: '#00f2ff', weight: 6, opacity: 0.8 }] },
+            createMarker: () => null
+        }).addTo(map);
+
+        activeRoute.on('routesfound', function(e) {
+            const routes = e.routes[0];
+            const eta = Math.round(routes.summary.totalTime / 60);
+            document.getElementById('eta').innerText = eta + " mins";
+            
+            log(`Fastest corridor cleared. ETA: ${eta} minutes.`);
+            startAmbulance(routes.coordinates);
+        });
+    }
+
+    function startAmbulance(coords) {
+        const icon = L.icon({
+            iconUrl: 'https://cdn-icons-png.flaticon.com/512/3448/3448339.png',
+            iconSize: [40, 40]
+        });
+        ambMarker = L.marker(coords[0], {icon: icon}).addTo(map);
+        map.flyTo(coords[0], 14);
+
+        let step = 0;
+        const move = setInterval(() => {
+            if(step >= coords.length) {
+                clearInterval(move);
+                log("EMERGENCY SUCCESS: Patient handed over.", "#4ade80");
+            } else {
+                ambMarker.setLatLng(coords[step]);
+                if(step % 15 === 0) map.panTo(coords[step]);
+                step += 3;
+            }
+        }, 50);
+    }
+
+    log("Satellite Link Active. Mumbai Grid Monitoring...");
+</script>
+</body>
+</html>
