@@ -6,8 +6,7 @@ An AI-powered emergency routing and smart traffic management system designed for
 
 ## 🚀 Live Interactive Demo
 Experience the live simulation directly in your web browser:
-👉 **[CLICK HERE TO VIEW THE LIVE TRAFFIC SIMULATION]([https://YOUR-GITHUB-USERNAME.github.io/Smart-Traffic-Simulation-System/](https://github.com/haninayi24cse-hue/Smart-Traffic-Evacuation-System-.git))
----
+- 👉 **[CLICK HERE TO VIEW THE LIVE TRAFFIC SIMULATION](https://haninayi24cse-hue.github.io/Smart-Traffic-Simulation-System/)**
 
 ## 🛠️ Tech Stack & Architecture
 * **Backend Engine:** C++ (Graph Data Structure, Priority Queues, A* Pathfinding Algorithm)
